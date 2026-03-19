@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from botocore.exceptions import BotoCoreError, ClientError
+
 AWS_REGION = "us-east-2"
 BEDROCK_MODEL_ID = "us.amazon.nova-lite-v1:0"
 # ---------------------------
@@ -24,27 +25,6 @@ with col1:
 with col2:
     st.title("Maryland Pedestrian Injury Chatbot")
     st.caption("Amazon Bedrock + Pandas + Streamlit")
-
-# ---------------------------
-# AWS / Bedrock setup
-# ---------------------------
-AWS_REGION = st.secrets.get("AWS_REGION", os.getenv("AWS_REGION", "us-east-2"))
-BEDROCK_MODEL_ID = st.secrets.get(
-    "BEDROCK_MODEL_ID",
-    os.getenv("BEDROCK_MODEL_ID", "")
-)
-
-if not BEDROCK_MODEL_ID:
-    st.error(
-        "Missing BEDROCK_MODEL_ID. Add it to Streamlit secrets or your environment variables."
-    )
-    st.stop()
-
-try:
-    bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-except Exception as e:
-    st.error(f"Could not create Bedrock client: {e}")
-    st.stop()
 
 # ---------------------------
 # Load and clean data
