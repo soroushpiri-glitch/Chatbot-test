@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import boto3
 import pandas as pd
@@ -426,8 +427,9 @@ Available jurisdictions:
 You have access to tools for:
 - one jurisdiction in one year
 - highest jurisdiction in a year
-- trend over time
-- comparison between two jurisdictions
+- trend over time for one jurisdiction
+- comparison between two jurisdictions in one year
+- multi-jurisdiction trend comparison across a range of years
 - statistical summary / analysis
 
 Rules:
@@ -437,6 +439,7 @@ Rules:
 - If the user asks for explanation or analysis, first call analysis_summary.
 - Keep answers concise, clear, and grounded in the data.
 - If a user asks for a chart, trend, visualization, graph, plot, or compare visually, use the correct tool.
+- If a user asks to compare two or more jurisdictions over multiple years or on the same plot, use compare_trend_multiple.
 """
 
 def get_tool_config():
@@ -552,12 +555,12 @@ def execute_tool(tool_name, tool_input):
         text = get_rate(df, jurisdiction, year)
         return {"text": text}
 
-    if tool_name == "highest_rate":
+    elif tool_name == "highest_rate":
         year = int(tool_input["year"])
         text = highest_rate(df, year)
         return {"text": text}
 
-    if tool_name == "trend_summary":
+    elif tool_name == "trend_summary":
         jurisdiction = tool_input["jurisdiction"]
         text = jurisdiction_trend(df, jurisdiction)
         matched = find_best_jurisdiction_match(jurisdiction)
@@ -567,7 +570,7 @@ def execute_tool(tool_name, tool_input):
             "show_trend_chart": True
         }
 
-    if tool_name == "compare_jurisdictions":
+    elif tool_name == "compare_jurisdictions":
         j1 = tool_input["jurisdiction1"]
         j2 = tool_input["jurisdiction2"]
         year = int(tool_input["year"])
@@ -584,30 +587,30 @@ def execute_tool(tool_name, tool_input):
             "show_compare_chart": True
         }
 
-    if tool_name == "compare_trend_multiple":
-    jurisdictions = tool_input["jurisdictions"]
-    start_year = int(tool_input["start_year"])
-    end_year = int(tool_input["end_year"])
+    elif tool_name == "compare_trend_multiple":
+        jurisdictions = tool_input["jurisdictions"]
+        start_year = int(tool_input["start_year"])
+        end_year = int(tool_input["end_year"])
 
-    text = multi_jurisdiction_trend_text(df, jurisdictions, start_year, end_year)
+        text = multi_jurisdiction_trend_text(df, jurisdictions, start_year, end_year)
 
-    matched_list = []
-    for j in jurisdictions:
-        matched = find_best_jurisdiction_match(j)
-        if matched:
-            matched_list.append(matched)
+        matched_list = []
+        for j in jurisdictions:
+            matched = find_best_jurisdiction_match(j)
+            if matched:
+                matched_list.append(matched)
 
-    matched_list = list(dict.fromkeys(matched_list))
+        matched_list = list(dict.fromkeys(matched_list))
 
-    return {
-        "text": text,
-        "jurisdictions": matched_list,
-        "start_year": start_year,
-        "end_year": end_year,
-        "show_multi_trend_chart": True
-    }
+        return {
+            "text": text,
+            "jurisdictions": matched_list,
+            "start_year": start_year,
+            "end_year": end_year,
+            "show_multi_trend_chart": True
+        }
 
-    if tool_name == "analysis_summary":
+    elif tool_name == "analysis_summary":
         jurisdiction = tool_input.get("jurisdiction")
         summary = generate_data_summary(df, jurisdiction)
         if summary is None:
@@ -811,6 +814,7 @@ with st.sidebar:
     - Are pedestrian injuries increasing over time in Maryland?
     - What patterns do you see in pedestrian injury trends?
     - Why might Baltimore City have higher pedestrian injury rates?
+    - Show Washington and Baltimore County together from 2015 to 2020
     """)
 
 # ---------------------------
