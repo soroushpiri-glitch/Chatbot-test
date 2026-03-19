@@ -97,6 +97,33 @@ def find_best_jurisdiction_match(name: str):
 
     return None
 
+def extract_top_n(user_query, default=3):
+    import re
+
+    # Look for patterns like "top 5", "top 10", etc.
+    match = re.search(r"top\s+(\d+)", user_query.lower())
+
+    if match:
+        return int(match.group(1))
+
+    return default
+
+def extract_year_range(user_query):
+    import re
+
+    years = re.findall(r"\b(20\d{2}|19\d{2})\b", user_query)
+    years = [int(y) for y in years]
+
+    if len(years) >= 2:
+        return min(years), max(years)
+    elif len(years) == 1:
+        return years[0], years[0]
+
+    return None, None
+
+def is_top_bottom_request(user_prompt: str) -> bool:
+    keywords = ["top", "lowest", "highest", "bottom"]
+    return any(k in user_prompt.lower() for k in keywords)
 
 def get_rate(df_in, jurisdiction, year):
     matched = find_best_jurisdiction_match(jurisdiction)
@@ -413,6 +440,52 @@ def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
     fig.tight_layout()
 
     return fig, pivot_df.reset_index()
+
+def top_bottom_jurisdictions_by_year(df_in, start_year, end_year, top_n=3):
+    data = df_in[
+        (df_in["Year"] >= start_year) &
+        (df_in["Year"] <= end_year)
+    ].copy()
+
+    if data.empty:
+        return {"text": f"No data found from {start_year} to {end_year}."}
+
+    yearly_avg = (
+        data.groupby(["Year", "Jurisdiction"], as_index=False)["Value"]
+        .mean()
+    )
+
+    lines = []
+    results = {}
+
+    for year in range(start_year, end_year + 1):
+        year_data = yearly_avg[yearly_avg["Year"] == year].copy()
+
+        if year_data.empty:
+            lines.append(f"\n{year}: No data found.")
+            continue
+
+        highest = year_data.sort_values("Value", ascending=False).head(top_n)
+        lowest = year_data.sort_values("Value", ascending=True).head(top_n)
+
+        results[year] = {
+            "highest": highest.to_dict(orient="records"),
+            "lowest": lowest.to_dict(orient="records")
+        }
+
+        lines.append(f"\n{year}")
+        lines.append("Top 3 highest:")
+        for _, row in highest.iterrows():
+            lines.append(f"- {row['Jurisdiction']}: {row['Value']:.2f}")
+
+        lines.append("Top 3 lowest:")
+        for _, row in lowest.iterrows():
+            lines.append(f"- {row['Jurisdiction']}: {row['Value']:.2f}")
+
+    return {
+        "text": "\n".join(lines),
+        "results": results
+    }
 # ---------------------------
 # Bedrock tool config
 # ---------------------------
@@ -440,6 +513,7 @@ Rules:
 - Keep answers concise, clear, and grounded in the data.
 - If a user asks for a chart, trend, visualization, graph, plot, or compare visually, use the correct tool.
 - If a user asks to compare two or more jurisdictions over multiple years or on the same plot, use compare_trend_multiple.
+- If a user asks for top or lowest jurisdictions across multiple years, use top_bottom_by_year_range.
 """
 
 def get_tool_config():
@@ -529,6 +603,23 @@ def get_tool_config():
     }
 },
             {
+    "toolSpec": {
+        "name": "top_bottom_by_year_range",
+        "description": "Show the top and bottom jurisdictions by pedestrian injury rate for each year in a year range.",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "start_year": {"type": "integer"},
+                    "end_year": {"type": "integer"},
+                    "top_n": {"type": "integer"}
+                },
+                "required": ["start_year", "end_year"]
+            }
+        }
+    }
+},
+            {
                 "toolSpec": {
                     "name": "analysis_summary",
                     "description": "Generate a structured summary of the data for one jurisdiction or Maryland overall.",
@@ -608,6 +699,17 @@ def execute_tool(tool_name, tool_input):
             "start_year": start_year,
             "end_year": end_year,
             "show_multi_trend_chart": True
+        }
+
+        elif tool_name == "top_bottom_by_year_range":
+        start_year = int(tool_input["start_year"])
+        end_year = int(tool_input["end_year"])
+        top_n = int(tool_input.get("top_n", 3))
+
+        result = top_bottom_jurisdictions_by_year(df, start_year, end_year, top_n)
+
+        return {
+            "text": result["text"]
         }
 
     elif tool_name == "analysis_summary":
@@ -815,6 +917,7 @@ with st.sidebar:
     - What patterns do you see in pedestrian injury trends?
     - Why might Baltimore City have higher pedestrian injury rates?
     - Show Washington and Baltimore County together from 2015 to 2020
+    - top and bottom jurisdictions across a year range
     """)
 
 # ---------------------------
@@ -845,6 +948,24 @@ if user_prompt:
     with st.chat_message("user"):
         st.write(user_prompt)
 
+   if is_top_bottom_request(user_prompt):
+    start_year, end_year = extract_year_range(user_prompt)  # we define below
+    top_n = extract_top_n(user_prompt)
+
+    if start_year is None or end_year is None:
+        result = {
+            "text": "Please specify a year range like 2017 to 2020.",
+            "figure": None
+        }
+    else:
+        result_data = top_bottom_jurisdictions_by_year(df, start_year, end_year, top_n)
+
+        result = {
+            "text": result_data["text"],
+            "figure": None
+        }
+
+else:
     result = answer_question(user_prompt)
 
     assistant_message = {
