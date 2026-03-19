@@ -6,17 +6,25 @@ import matplotlib.pyplot as plt
 import streamlit as st
 from botocore.exceptions import BotoCoreError, ClientError
 
-# Read from Streamlit secrets
-AWS_REGION = st.secrets["AWS_REGION"]
-BEDROCK_MODEL_ID = st.secrets["BEDROCK_MODEL_ID"]
+AWS_REGION = st.secrets.get("AWS_REGION", "us-east-2")
+BEDROCK_MODEL_ID = st.secrets.get("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
+AWS_ACCESS_KEY_ID = st.secrets.get("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = st.secrets.get("AWS_SECRET_ACCESS_KEY")
 
-# Create Bedrock client
-bedrock = boto3.client(
-    "bedrock-runtime",
-    region_name=AWS_REGION,
-    aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
-    aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"]
-)
+if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+    st.error("AWS secrets are missing in Streamlit app settings.")
+    st.stop()
+
+try:
+    bedrock = boto3.client(
+        "bedrock-runtime",
+        region_name=AWS_REGION,
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    )
+except Exception as e:
+    st.error(f"Could not create Bedrock client: {e}")
+    st.stop()
     
 # ---------------------------
 # Page setup
