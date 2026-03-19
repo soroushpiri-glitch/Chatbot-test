@@ -5,7 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from botocore.exceptions import BotoCoreError, ClientError
-
+AWS_REGION = "us-east-2"
+BEDROCK_MODEL_ID = "us.amazon.nova-lite-v1:0"
 # ---------------------------
 # Page setup
 # ---------------------------
