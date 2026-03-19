@@ -8,6 +8,13 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 AWS_REGION = "us-east-2"
 BEDROCK_MODEL_ID = "us.amazon.nova-lite-v1:0"
+
+try:
+    bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+except Exception as e:
+    st.error(f"Could not create Bedrock client: {e}")
+    st.stop()
+    
 # ---------------------------
 # Page setup
 # ---------------------------
