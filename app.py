@@ -382,12 +382,14 @@ def make_trend_figure(df_in, jurisdiction):
         .mean()
         .sort_values("Year")
     )
+    summary["Year"] = summary["Year"].astype(int)
 
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
     ax.plot(summary["Year"], summary["Value"], marker="o", linewidth=2, markersize=5)
     ax.set_title(f"Trend: {matched}", fontsize=12, pad=10)
     ax.set_xlabel("Year", fontsize=10)
     ax.set_ylabel("Rate", fontsize=10)
+    ax.set_xticks(summary["Year"].tolist())
     ax.tick_params(axis="x", labelrotation=45, labelsize=8)
     ax.tick_params(axis="y", labelsize=8)
     ax.grid(True, alpha=0.3)
@@ -461,8 +463,10 @@ def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
         .mean()
         .sort_values([county_col, year_col])
     )
+    trend[year_col] = trend[year_col].astype(int)
 
     pivot_df = trend.pivot(index=year_col, columns=county_col, values=value_col)
+    pivot_df.index = pivot_df.index.astype(int)
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for county in pivot_df.columns:
@@ -471,6 +475,7 @@ def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
     ax.set_title(f"Trend Comparison ({start_year}–{end_year})", fontsize=12, pad=10)
     ax.set_xlabel("Year", fontsize=10)
     ax.set_ylabel("Pedestrian Injury Rate", fontsize=10)
+    ax.set_xticks(pivot_df.index.tolist())
     ax.legend(title="Jurisdiction")
     ax.grid(True, alpha=0.3)
     ax.spines["top"].set_visible(False)
@@ -498,6 +503,7 @@ def plot_lowest_by_year(df_in, start_year, end_year):
         .groupby("Year", as_index=False)
         .first()
     )
+    lowest_each_year["Year"] = lowest_each_year["Year"].astype(int)
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(
@@ -520,6 +526,7 @@ def plot_lowest_by_year(df_in, start_year, end_year):
     ax.set_title(f"Lowest Pedestrian Injury Rate by Year ({start_year}–{end_year})", fontsize=12, pad=10)
     ax.set_xlabel("Year", fontsize=10)
     ax.set_ylabel("Lowest Rate", fontsize=10)
+    ax.set_xticks(lowest_each_year["Year"].tolist())
     ax.grid(True, alpha=0.3)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -550,6 +557,7 @@ def plot_highest_by_year(df_in, start_year, end_year):
         .groupby("Year", as_index=False)
         .first()
     )
+    highest_each_year["Year"] = highest_each_year["Year"].astype(int)
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(
@@ -572,6 +580,7 @@ def plot_highest_by_year(df_in, start_year, end_year):
     ax.set_title(f"Highest Pedestrian Injury Rate by Year ({start_year}–{end_year})", fontsize=12, pad=10)
     ax.set_xlabel("Year", fontsize=10)
     ax.set_ylabel("Highest Rate", fontsize=10)
+    ax.set_xticks(highest_each_year["Year"].tolist())
     ax.grid(True, alpha=0.3)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
