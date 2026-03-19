@@ -323,52 +323,95 @@ def extract_counties_and_years(user_query, available_counties):
 
     return found_counties, start_year, end_year
 
-def plot_county_trend(df, counties, start_year=2015, end_year=2020,
-                      county_col="County", year_col="Year"):
-    """
-    Plot yearly trend for one or more counties on the same chart.
-    """
+def multi_jurisdiction_trend_text(df_in, counties, start_year, end_year):
+    matched_counties = []
+    for c in counties:
+        matched = find_best_jurisdiction_match(c)
+        if matched:
+            matched_counties.append(matched)
 
-    # Clean county names for matching
-    counties = [c.strip().title() for c in counties]
+    matched_counties = list(dict.fromkeys(matched_counties))
 
-    # Make sure year column is numeric
-    df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+    if len(matched_counties) < 2:
+        return "I could not identify at least two valid jurisdictions to compare."
 
-    # Filter data
-    filtered = df[
-        (df[county_col].str.title().isin(counties)) &
-        (df[year_col] >= start_year) &
-        (df[year_col] <= end_year)
+    filtered = df_in[
+        (df_in["Jurisdiction"].isin(matched_counties)) &
+        (df_in["Year"] >= start_year) &
+        (df_in["Year"] <= end_year)
     ].copy()
 
     if filtered.empty:
-        st.warning("No data found for the selected counties and years.")
-        return
+        return "No data found for the selected jurisdictions and year range."
 
-    # Count records by year and county
-    trend = (
-        filtered.groupby([year_col, county_col])
-        .size()
-        .reset_index(name="Count")
+    summary = (
+        filtered.groupby(["Jurisdiction", "Year"], as_index=False)["Value"]
+        .mean()
+        .sort_values(["Jurisdiction", "Year"])
     )
 
-    # Pivot for plotting
-    pivot_df = trend.pivot(index=year_col, columns=county_col, values="Count").fillna(0)
+    lines = [f"Here are the pedestrian injury trends from {start_year} to {end_year}:"]
+    for j in matched_counties:
+        lines.append(f"\n{j}:")
+        sub = summary[summary["Jurisdiction"] == j]
+        for _, row in sub.iterrows():
+            lines.append(f"- {int(row['Year'])}: {row['Value']:.2f}")
 
-    # Plot
-    fig, ax = plt.subplots(figsize=(10, 5))
+    return "\n".join(lines)
+
+def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
+                      county_col="Jurisdiction", year_col="Year", value_col="Value"):
+    """
+    Plot yearly trend for multiple jurisdictions on the same chart.
+    Returns fig and pivot table.
+    """
+
+    matched_counties = []
+    for c in counties:
+        matched = find_best_jurisdiction_match(c)
+        if matched:
+            matched_counties.append(matched)
+
+    matched_counties = list(dict.fromkeys(matched_counties))  # remove duplicates, keep order
+
+    if len(matched_counties) < 2:
+        return None, None
+
+    data = df_in.copy()
+    data[year_col] = pd.to_numeric(data[year_col], errors="coerce")
+    data[value_col] = pd.to_numeric(data[value_col], errors="coerce")
+
+    filtered = data[
+        (data[county_col].isin(matched_counties)) &
+        (data[year_col] >= start_year) &
+        (data[year_col] <= end_year)
+    ].copy()
+
+    if filtered.empty:
+        return None, None
+
+    trend = (
+        filtered.groupby([year_col, county_col], as_index=False)[value_col]
+        .mean()
+        .sort_values([county_col, year_col])
+    )
+
+    pivot_df = trend.pivot(index=year_col, columns=county_col, values=value_col)
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     for county in pivot_df.columns:
-        ax.plot(pivot_df.index, pivot_df[county], marker="o", label=county)
+        ax.plot(pivot_df.index, pivot_df[county], marker="o", linewidth=2, label=county)
 
-    ax.set_title(f"Trend for {' and '.join(counties)} ({start_year}–{end_year})")
-    ax.set_xlabel("Year")
-    ax.set_ylabel("Number of Records")
-    ax.legend(title="County")
-    ax.grid(True)
+    ax.set_title(f"Trend Comparison ({start_year}–{end_year})", fontsize=12, pad=10)
+    ax.set_xlabel("Year", fontsize=10)
+    ax.set_ylabel("Pedestrian Injury Rate", fontsize=10)
+    ax.legend(title="Jurisdiction")
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
 
-    st.pyplot(fig)
-    st.dataframe(pivot_df.reset_index())
+    return fig, pivot_df.reset_index()
 # ---------------------------
 # Bedrock tool config
 # ---------------------------
@@ -463,6 +506,26 @@ def get_tool_config():
                 }
             },
             {
+    "toolSpec": {
+        "name": "compare_trend_multiple",
+        "description": "Compare trend lines for multiple jurisdictions across a range of years on the same plot.",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "jurisdictions": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "start_year": {"type": "integer"},
+                    "end_year": {"type": "integer"}
+                },
+                "required": ["jurisdictions", "start_year", "end_year"]
+            }
+        }
+    }
+},
+            {
                 "toolSpec": {
                     "name": "analysis_summary",
                     "description": "Generate a structured summary of the data for one jurisdiction or Maryland overall.",
@@ -520,6 +583,29 @@ def execute_tool(tool_name, tool_input):
             "year": year,
             "show_compare_chart": True
         }
+
+    if tool_name == "compare_trend_multiple":
+    jurisdictions = tool_input["jurisdictions"]
+    start_year = int(tool_input["start_year"])
+    end_year = int(tool_input["end_year"])
+
+    text = multi_jurisdiction_trend_text(df, jurisdictions, start_year, end_year)
+
+    matched_list = []
+    for j in jurisdictions:
+        matched = find_best_jurisdiction_match(j)
+        if matched:
+            matched_list.append(matched)
+
+    matched_list = list(dict.fromkeys(matched_list))
+
+    return {
+        "text": text,
+        "jurisdictions": matched_list,
+        "start_year": start_year,
+        "end_year": end_year,
+        "show_multi_trend_chart": True
+    }
 
     if tool_name == "analysis_summary":
         jurisdiction = tool_input.get("jurisdiction")
@@ -617,6 +703,14 @@ def ask_bedrock_with_tools(user_prompt):
                         "year": result["year"]
                     }
 
+                if result.get("show_multi_trend_chart"):
+                    pending_chart = {
+                        "type": "multi_trend",
+                        "jurisdictions": result["jurisdictions"],
+                        "start_year": result["start_year"],
+                        "end_year": result["end_year"]
+                    }
+
                 tool_result_content.append({
                     "toolResult": {
                         "toolUseId": tool_use_id,
@@ -677,12 +771,24 @@ def answer_question(question):
     if chart:
         if chart["type"] == "trend":
             fig = make_trend_figure(df, chart["jurisdiction"])
+
         elif chart["type"] == "compare":
             fig = make_compare_figure(
                 df,
                 chart["jurisdiction1"],
                 chart["jurisdiction2"],
                 chart["year"]
+            )
+
+        elif chart["type"] == "multi_trend":
+            fig, _ = plot_county_trend(
+                df,
+                chart["jurisdictions"],
+                start_year=chart["start_year"],
+                end_year=chart["end_year"],
+                county_col="Jurisdiction",
+                year_col="Year",
+                value_col="Value"
             )
 
     return {"text": result["text"], "figure": fig}
