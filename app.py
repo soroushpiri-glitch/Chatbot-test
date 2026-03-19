@@ -68,6 +68,25 @@ def load_data():
     return df
 
 df = load_data()
+# User Query Input (ADD HERE)
+# ---------------------------
+user_query = st.text_input("Ask a question about the data")
+
+if user_query:
+    available_counties = sorted(df["County"].dropna().unique().tolist())
+
+    counties, start_year, end_year = extract_counties_and_years(
+        user_query, available_counties
+    )
+
+    # Detect whether user wants a comparison trend plot
+    trend_keywords = ["trend", "compare", "comparison", "plot", "visualize", "show"]
+
+    if len(counties) >= 2 and any(word in user_query.lower() for word in trend_keywords):
+        if start_year is None or end_year is None:
+            st.warning("Please specify a year range, like 2015 to 2020.")
+        else:
+            plot_county_trend(df, counties, start_year, end_year)
 jurisdictions = sorted(df["Jurisdiction"].dropna().unique().tolist())
 
 # ---------------------------
@@ -293,6 +312,79 @@ def make_compare_figure(df_in, jurisdiction1, jurisdiction2, year):
     fig.tight_layout()
     return fig
 
+def extract_counties_and_years(user_query, available_counties):
+    """
+    Extract counties and year range from user text.
+    """
+    query_lower = user_query.lower()
+
+    # Find mentioned counties
+    found_counties = []
+    for county in available_counties:
+        county_clean = county.lower().replace(" county", "").strip()
+
+        if county_clean in query_lower:
+            found_counties.append(county)
+
+    # Find years
+    years = re.findall(r"\b(20\d{2}|19\d{2})\b", user_query)
+    years = [int(y) for y in years]
+
+    if len(years) >= 2:
+        start_year, end_year = min(years), max(years)
+    elif len(years) == 1:
+        start_year = end_year = years[0]
+    else:
+        start_year, end_year = None, None
+
+    return found_counties, start_year, end_year
+
+def plot_county_trend(df, counties, start_year=2015, end_year=2020,
+                      county_col="County", year_col="Year"):
+    """
+    Plot yearly trend for one or more counties on the same chart.
+    """
+
+    # Clean county names for matching
+    counties = [c.strip().title() for c in counties]
+
+    # Make sure year column is numeric
+    df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+
+    # Filter data
+    filtered = df[
+        (df[county_col].str.title().isin(counties)) &
+        (df[year_col] >= start_year) &
+        (df[year_col] <= end_year)
+    ].copy()
+
+    if filtered.empty:
+        st.warning("No data found for the selected counties and years.")
+        return
+
+    # Count records by year and county
+    trend = (
+        filtered.groupby([year_col, county_col])
+        .size()
+        .reset_index(name="Count")
+    )
+
+    # Pivot for plotting
+    pivot_df = trend.pivot(index=year_col, columns=county_col, values="Count").fillna(0)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for county in pivot_df.columns:
+        ax.plot(pivot_df.index, pivot_df[county], marker="o", label=county)
+
+    ax.set_title(f"Trend for {' and '.join(counties)} ({start_year}–{end_year})")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Number of Records")
+    ax.legend(title="County")
+    ax.grid(True)
+
+    st.pyplot(fig)
+    st.dataframe(pivot_df.reset_index())
 # ---------------------------
 # Bedrock tool config
 # ---------------------------
