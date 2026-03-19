@@ -70,23 +70,7 @@ def load_data():
 df = load_data()
 # User Query Input (ADD HERE)
 # ---------------------------
-user_query = st.text_input("Ask a question about the data")
 
-if user_query:
-    available_counties = sorted(df["County"].dropna().unique().tolist())
-
-    counties, start_year, end_year = extract_counties_and_years(
-        user_query, available_counties
-    )
-
-    # Detect whether user wants a comparison trend plot
-    trend_keywords = ["trend", "compare", "comparison", "plot", "visualize", "show"]
-
-    if len(counties) >= 2 and any(word in user_query.lower() for word in trend_keywords):
-        if start_year is None or end_year is None:
-            st.warning("Please specify a year range, like 2015 to 2020.")
-        else:
-            plot_county_trend(df, counties, start_year, end_year)
 jurisdictions = sorted(df["Jurisdiction"].dropna().unique().tolist())
 
 # ---------------------------
