@@ -91,10 +91,32 @@ def extract_top_n(user_query, default=3):
         return int(match.group(1))
     return default
 
+def is_lowest_trend_request(user_prompt: str) -> bool:
+    q = user_prompt.lower()
+    return (
+        "trend" in q and "lowest" in q
+    ) or (
+        "show" in q and "lowest pedestrian injury rate" in q
+    )
+
+def is_highest_trend_request(user_prompt: str) -> bool:
+    q = user_prompt.lower()
+    return (
+        "trend" in q and "highest" in q
+    ) or (
+        "show" in q and "highest pedestrian injury rate" in q
+    )
+
 def is_top_bottom_request(user_prompt: str) -> bool:
     q = user_prompt.lower()
-    keywords = ["top", "bottom", "lowest", "highest"]
-    return any(k in q for k in keywords)
+
+    if is_lowest_trend_request(q) or is_highest_trend_request(q):
+        return False
+
+    has_top_bottom_words = any(k in q for k in ["top", "bottom", "lowest", "highest"])
+    has_range = len(re.findall(r"\b(20\d{2}|19\d{2})\b", q)) >= 1
+
+    return has_top_bottom_words and has_range
 
 # ---------------------------
 # Data functions
@@ -456,6 +478,110 @@ def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
     fig.tight_layout()
 
     return fig, pivot_df.reset_index()
+
+def plot_lowest_by_year(df_in, start_year, end_year):
+    data = df_in[
+        (df_in["Year"] >= start_year) &
+        (df_in["Year"] <= end_year)
+    ].copy()
+
+    if data.empty:
+        return None, f"No data found from {start_year} to {end_year}."
+
+    yearly_avg = (
+        data.groupby(["Year", "Jurisdiction"], as_index=False)["Value"]
+        .mean()
+    )
+
+    lowest_each_year = (
+        yearly_avg.sort_values(["Year", "Value"], ascending=[True, True])
+        .groupby("Year", as_index=False)
+        .first()
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    ax.plot(
+        lowest_each_year["Year"],
+        lowest_each_year["Value"],
+        marker="o",
+        linewidth=2
+    )
+
+    for _, row in lowest_each_year.iterrows():
+        ax.annotate(
+            row["Jurisdiction"],
+            (row["Year"], row["Value"]),
+            textcoords="offset points",
+            xytext=(0, 8),
+            ha="center",
+            fontsize=8
+        )
+
+    ax.set_title(f"Lowest Pedestrian Injury Rate by Year ({start_year}–{end_year})", fontsize=12, pad=10)
+    ax.set_xlabel("Year", fontsize=10)
+    ax.set_ylabel("Lowest Rate", fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+
+    text_lines = [f"Lowest jurisdiction in each year from {start_year} to {end_year}:"]
+    for _, row in lowest_each_year.iterrows():
+        text_lines.append(f"- {int(row['Year'])}: {row['Jurisdiction']} ({row['Value']:.2f})")
+
+    return fig, "\n".join(text_lines)
+
+def plot_highest_by_year(df_in, start_year, end_year):
+    data = df_in[
+        (df_in["Year"] >= start_year) &
+        (df_in["Year"] <= end_year)
+    ].copy()
+
+    if data.empty:
+        return None, f"No data found from {start_year} to {end_year}."
+
+    yearly_avg = (
+        data.groupby(["Year", "Jurisdiction"], as_index=False)["Value"]
+        .mean()
+    )
+
+    highest_each_year = (
+        yearly_avg.sort_values(["Year", "Value"], ascending=[True, False])
+        .groupby("Year", as_index=False)
+        .first()
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    ax.plot(
+        highest_each_year["Year"],
+        highest_each_year["Value"],
+        marker="o",
+        linewidth=2
+    )
+
+    for _, row in highest_each_year.iterrows():
+        ax.annotate(
+            row["Jurisdiction"],
+            (row["Year"], row["Value"]),
+            textcoords="offset points",
+            xytext=(0, 8),
+            ha="center",
+            fontsize=8
+        )
+
+    ax.set_title(f"Highest Pedestrian Injury Rate by Year ({start_year}–{end_year})", fontsize=12, pad=10)
+    ax.set_xlabel("Year", fontsize=10)
+    ax.set_ylabel("Highest Rate", fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+
+    text_lines = [f"Highest jurisdiction in each year from {start_year} to {end_year}:"]
+    for _, row in highest_each_year.iterrows():
+        text_lines.append(f"- {int(row['Year'])}: {row['Jurisdiction']} ({row['Value']:.2f})")
+
+    return fig, "\n".join(text_lines)
 
 # ---------------------------
 # Bedrock tool config
@@ -833,6 +959,8 @@ with st.sidebar:
     - Compare Maryland and Baltimore City in 2020
     - Show Washington and Baltimore County together from 2015 to 2020
     - Show top 5 counties with highest injury rate and top 5 with lowest injury rate from 2017 to 2020
+    - Show trend for the lowest pedestrian injury rate for each year from 2017 to 2020
+    - Show trend for the highest pedestrian injury rate for each year from 2017 to 2020
     """)
 
 # ---------------------------
@@ -863,9 +991,35 @@ if user_prompt:
     with st.chat_message("user"):
         st.write(user_prompt)
 
-    # Handle top/bottom requests directly in Python
-    if is_top_bottom_request(user_prompt):
-        start_year, end_year = extract_year_range(user_prompt)
+    start_year, end_year = extract_year_range(user_prompt)
+
+    if is_lowest_trend_request(user_prompt):
+        if start_year is None or end_year is None:
+            result = {
+                "text": "Please specify a year range like 2017 to 2020.",
+                "figure": None
+            }
+        else:
+            fig, text = plot_lowest_by_year(df, start_year, end_year)
+            result = {
+                "text": text,
+                "figure": fig
+            }
+
+    elif is_highest_trend_request(user_prompt):
+        if start_year is None or end_year is None:
+            result = {
+                "text": "Please specify a year range like 2017 to 2020.",
+                "figure": None
+            }
+        else:
+            fig, text = plot_highest_by_year(df, start_year, end_year)
+            result = {
+                "text": text,
+                "figure": fig
+            }
+
+    elif is_top_bottom_request(user_prompt):
         top_n = extract_top_n(user_prompt, default=3)
 
         if start_year is None or end_year is None:
@@ -879,6 +1033,7 @@ if user_prompt:
                 "text": top_bottom_result["text"],
                 "figure": None
             }
+
     else:
         result = answer_question(user_prompt)
 
