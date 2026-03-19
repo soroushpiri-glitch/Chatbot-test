@@ -12,9 +12,14 @@ st.set_page_config(
     page_icon="panda.jpg",
     layout="wide"
 )
-st.title("🚶 Maryland Pedestrian Injury Chatbot")
-st.caption("Gemini + Pandas + Streamlit")
+col1, col2 = st.columns([1, 8])
 
+with col1:
+    st.image("panda.jpg", width=70)
+
+with col2:
+    st.title("Maryland Pedestrian Injury Chatbot")
+    st.caption("Gemini + Pandas + Streamlit")
 # ---------------------------
 # API key input
 # ---------------------------
