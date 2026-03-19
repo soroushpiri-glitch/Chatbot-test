@@ -7,7 +7,11 @@ from google import genai
 # ---------------------------
 # Page setup
 # ---------------------------
-st.set_page_config(page_title="Maryland Pedestrian Injury Chatbot", page_icon="🚶", layout="wide")
+st.set_page_config(
+    page_title="Maryland Pedestrian Injury Chatbot",
+    page_icon="panda.jpg",
+    layout="wide"
+)
 st.title("🚶 Maryland Pedestrian Injury Chatbot")
 st.caption("Gemini + Pandas + Streamlit")
 
