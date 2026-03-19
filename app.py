@@ -6,14 +6,17 @@ import matplotlib.pyplot as plt
 import streamlit as st
 from botocore.exceptions import BotoCoreError, ClientError
 
-AWS_REGION = "us-east-2"
-BEDROCK_MODEL_ID = "us.amazon.nova-lite-v1:0"
+# Read from Streamlit secrets
+AWS_REGION = st.secrets["AWS_REGION"]
+BEDROCK_MODEL_ID = st.secrets["BEDROCK_MODEL_ID"]
 
-try:
-    bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-except Exception as e:
-    st.error(f"Could not create Bedrock client: {e}")
-    st.stop()
+# Create Bedrock client
+bedrock = boto3.client(
+    "bedrock-runtime",
+    region_name=AWS_REGION,
+    aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+    aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"]
+)
     
 # ---------------------------
 # Page setup
