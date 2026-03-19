@@ -69,7 +69,7 @@ Available jurisdictions:
 
 Return ONLY valid JSON in this exact format:
 {{
-  "intent": "rate" | "highest" | "trend" | "compare" | "unknown",
+  "intent": "rate" | "highest" | "trend" | "compare" | "analysis" | "unknown",
   "year": null or integer,
   "jurisdiction": null or string,
   "jurisdiction_2": null or string
@@ -80,6 +80,7 @@ Rules:
 - Use "highest" for questions asking which place had the highest rate in a year.
 - Use "trend" for questions asking about change over time, plotting, graphing, or visualizing a jurisdiction across years.
 - Use "compare" for questions comparing two jurisdictions in one year.
+- Use "analysis" for questions asking for explanations, patterns, interpretation, or whether rates are increasing/decreasing.
 - If possible, match jurisdiction names exactly from the list provided.
 - Return JSON only.
 
@@ -103,7 +104,6 @@ User question:
             "jurisdiction": None,
             "jurisdiction_2": None
         }
-
 def get_rate(df, jurisdiction, year):
     data = df[
         (df["Jurisdiction"].str.lower() == jurisdiction.lower()) &
@@ -169,14 +169,19 @@ def make_trend_figure(df, jurisdiction):
         .sort_values("Year")
     )
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(summary["Year"], summary["Value"], marker="o")
-    ax.set_title(f"Pedestrian Injury Rate Trend: {jurisdiction}")
-    ax.set_xlabel("Year")
-    ax.set_ylabel("Pedestrian Injury Rate")
-    ax.grid(True)
+    fig, ax = plt.subplots(figsize=(6.5, 3.8))
+    ax.plot(summary["Year"], summary["Value"], marker="o", linewidth=2, markersize=5)
+    ax.set_title(f"Trend: {jurisdiction}", fontsize=12, pad=10)
+    ax.set_xlabel("Year", fontsize=10)
+    ax.set_ylabel("Rate", fontsize=10)
+    ax.tick_params(axis="x", labelrotation=45, labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
     return fig
-
+    
 def make_compare_figure(df, jurisdiction1, jurisdiction2, year):
     data1 = df[
         (df["Jurisdiction"].str.lower() == jurisdiction1.lower()) &
@@ -193,12 +198,18 @@ def make_compare_figure(df, jurisdiction1, jurisdiction2, year):
     val1 = data1["Value"].mean()
     val2 = data2["Value"].mean()
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.bar([jurisdiction1, jurisdiction2], [val1, val2])
-    ax.set_title(f"Comparison in {year}")
-    ax.set_ylabel("Pedestrian Injury Rate")
+    fig, ax = plt.subplots(figsize=(5.8, 3.8))
+    ax.bar([jurisdiction1, jurisdiction2], [val1, val2], width=0.55)
+    ax.set_title(f"Comparison in {year}", fontsize=12, pad=10)
+    ax.set_ylabel("Rate", fontsize=10)
+    ax.tick_params(axis="x", labelrotation=15, labelsize=9)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
     return fig
-
+    
 def answer_question(question):
     parsed = parse_question_with_gemini(question, jurisdictions)
 
@@ -229,7 +240,112 @@ def answer_question(question):
         fig = make_compare_figure(df, jurisdiction, jurisdiction_2, year)
         return {"text": compare_jurisdictions(df, jurisdiction, jurisdiction_2, year), "figure": fig}
 
-    return {"text": "I could not understand the question. Try asking about a rate, highest value, trend, or comparison."}
+    if intent == "analysis":
+        summary = generate_data_summary(df, jurisdiction)
+        if summary is None:
+            return {"text": "I could not find enough data to analyze this question."}
+
+        analysis_text = explain_analysis_with_gemini(question, summary)
+
+        fig = None
+        if jurisdiction:
+            fig = make_trend_figure(df, jurisdiction)
+
+        return {"text": analysis_text, "figure": fig}
+
+    return {"text": "I could not understand the question. Try asking about a rate, highest value, trend, comparison, or analysis."}
+
+def generate_data_summary(df, jurisdiction=None):
+    data = df.copy()
+
+    if jurisdiction:
+        data = data[data["Jurisdiction"].str.lower() == jurisdiction.lower()]
+
+    if data.empty:
+        return None
+
+    summary = (
+        data.groupby("Year", as_index=False)["Value"]
+        .mean()
+        .sort_values("Year")
+    )
+
+    if summary.empty:
+        return None
+
+    first_year = int(summary["Year"].iloc[0])
+    last_year = int(summary["Year"].iloc[-1])
+    first_value = float(summary["Value"].iloc[0])
+    last_value = float(summary["Value"].iloc[-1])
+    avg_value = float(summary["Value"].mean())
+    max_value = float(summary["Value"].max())
+    min_value = float(summary["Value"].min())
+
+    if last_value > first_value:
+        trend = "increasing"
+    elif last_value < first_value:
+        trend = "decreasing"
+    else:
+        trend = "stable"
+
+    pct_change = None
+    if first_value != 0:
+        pct_change = ((last_value - first_value) / first_value) * 100
+
+    max_row = summary.loc[summary["Value"].idxmax()]
+    min_row = summary.loc[summary["Value"].idxmin()]
+
+    return {
+        "jurisdiction": jurisdiction if jurisdiction else "Maryland overall",
+        "trend": trend,
+        "first_year": first_year,
+        "last_year": last_year,
+        "first_value": round(first_value, 2),
+        "last_value": round(last_value, 2),
+        "average": round(avg_value, 2),
+        "max_value": round(max_value, 2),
+        "min_value": round(min_value, 2),
+        "max_year": int(max_row["Year"]),
+        "min_year": int(min_row["Year"]),
+        "pct_change": round(pct_change, 2) if pct_change is not None else None
+    }
+
+
+def explain_analysis_with_gemini(question, summary):
+    if summary is None:
+        return "I could not generate a summary for this analysis question."
+
+    prompt = f"""
+You are a careful data analyst.
+
+Use ONLY the structured data below to answer the user's question.
+Do not invent numbers or causes not supported by the dataset.
+You may mention that possible reasons are hypotheses, not proven by this dataset.
+
+Structured summary:
+- Jurisdiction: {summary['jurisdiction']}
+- Trend: {summary['trend']}
+- First year: {summary['first_year']}
+- Last year: {summary['last_year']}
+- First value: {summary['first_value']}
+- Last value: {summary['last_value']}
+- Average value: {summary['average']}
+- Maximum value: {summary['max_value']} in {summary['max_year']}
+- Minimum value: {summary['min_value']} in {summary['min_year']}
+- Percent change: {summary['pct_change']}
+
+User question:
+{question}
+
+Write a concise answer in 2-4 sentences.
+If the question asks "why", say the dataset suggests the pattern but does not prove causes.
+"""
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-lite",
+        contents=prompt
+    )
+    return response.text.strip()
 
 # ---------------------------
 # Sidebar
@@ -241,10 +357,14 @@ with st.sidebar:
     st.write(f"Years: {int(df['Year'].min())}–{int(df['Year'].max())}")
     st.write("Example questions:")
     st.markdown("""
+st.markdown("""
 - What was the pedestrian injury rate in Baltimore City in 2022?
 - Which jurisdiction had the highest rate in 2021?
 - Show trend for Baltimore City
 - Compare Maryland and Baltimore City in 2020
+- Are pedestrian injuries increasing over time in Maryland?
+- What patterns do you see in pedestrian injury trends?
+- Why might Baltimore City have higher pedestrian injury rates?
 """)
 
 # ---------------------------
