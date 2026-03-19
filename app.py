@@ -12,7 +12,7 @@ st.set_page_config(
     page_icon="panda.jpg",
     layout="wide"
 )
-col1, col2 = st.columns([1, 8])
+col1, col2 = st.columns([1, 6])
 
 with col1:
     st.image("panda.jpg", width=70)
