@@ -1,12 +1,13 @@
-import os
 import re
-import json
 import boto3
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from botocore.exceptions import BotoCoreError, ClientError
 
+# ---------------------------
+# AWS config
+# ---------------------------
 AWS_REGION = st.secrets.get("AWS_REGION", "us-east-2")
 BEDROCK_MODEL_ID = st.secrets.get("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
 AWS_ACCESS_KEY_ID = st.secrets.get("AWS_ACCESS_KEY_ID")
@@ -26,7 +27,7 @@ try:
 except Exception as e:
     st.error(f"Could not create Bedrock client: {e}")
     st.stop()
-    
+
 # ---------------------------
 # Page setup
 # ---------------------------
@@ -64,15 +65,36 @@ def load_data():
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
     df["Value"] = pd.to_numeric(df["Value"], errors="coerce")
     df["Jurisdiction"] = df["Jurisdiction"].astype(str).str.strip()
-    df = df.dropna(subset=["Year", "Value", "Jurisdiction"])
 
+    df = df.dropna(subset=["Year", "Value", "Jurisdiction"])
     return df
 
 df = load_data()
-# User Query Input (ADD HERE)
-# ---------------------------
-
 jurisdictions = sorted(df["Jurisdiction"].dropna().unique().tolist())
+
+# ---------------------------
+# Query helpers
+# ---------------------------
+def extract_year_range(user_query):
+    years = re.findall(r"\b(20\d{2}|19\d{2})\b", user_query)
+    years = [int(y) for y in years]
+
+    if len(years) >= 2:
+        return min(years), max(years)
+    elif len(years) == 1:
+        return years[0], years[0]
+    return None, None
+
+def extract_top_n(user_query, default=3):
+    match = re.search(r"top\s+(\d+)", user_query.lower())
+    if match:
+        return int(match.group(1))
+    return default
+
+def is_top_bottom_request(user_prompt: str) -> bool:
+    q = user_prompt.lower()
+    keywords = ["top", "bottom", "lowest", "highest"]
+    return any(k in q for k in keywords)
 
 # ---------------------------
 # Data functions
@@ -97,34 +119,6 @@ def find_best_jurisdiction_match(name: str):
 
     return None
 
-def extract_top_n(user_query, default=3):
-    import re
-
-    # Look for patterns like "top 5", "top 10", etc.
-    match = re.search(r"top\s+(\d+)", user_query.lower())
-
-    if match:
-        return int(match.group(1))
-
-    return default
-
-def extract_year_range(user_query):
-    import re
-
-    years = re.findall(r"\b(20\d{2}|19\d{2})\b", user_query)
-    years = [int(y) for y in years]
-
-    if len(years) >= 2:
-        return min(years), max(years)
-    elif len(years) == 1:
-        return years[0], years[0]
-
-    return None, None
-
-def is_top_bottom_request(user_prompt: str) -> bool:
-    keywords = ["top", "lowest", "highest", "bottom"]
-    return any(k in user_prompt.lower() for k in keywords)
-
 def get_rate(df_in, jurisdiction, year):
     matched = find_best_jurisdiction_match(jurisdiction)
     if matched is None:
@@ -141,7 +135,6 @@ def get_rate(df_in, jurisdiction, year):
     avg_value = data["Value"].mean()
     return f"The pedestrian injury rate in {matched} in {year} was {avg_value:.2f}."
 
-
 def highest_rate(df_in, year):
     data = df_in[df_in["Year"] == year]
     if data.empty:
@@ -155,7 +148,6 @@ def highest_rate(df_in, year):
         f"{row['Jurisdiction']} ({race_val}), with a rate of {row['Value']:.2f}."
     )
 
-
 def jurisdiction_trend(df_in, jurisdiction):
     matched = find_best_jurisdiction_match(jurisdiction)
     if matched is None:
@@ -167,9 +159,7 @@ def jurisdiction_trend(df_in, jurisdiction):
 
     summary = data.groupby("Year")["Value"].mean().reset_index().sort_values("Year")
     lines = [f"{int(row['Year'])}: {row['Value']:.2f}" for _, row in summary.iterrows()]
-
     return f"Trend for {matched}:\n" + "\n".join(lines)
-
 
 def compare_jurisdictions(df_in, jurisdiction1, jurisdiction2, year):
     matched1 = find_best_jurisdiction_match(jurisdiction1)
@@ -199,7 +189,6 @@ def compare_jurisdictions(df_in, jurisdiction1, jurisdiction2, year):
         f"In {year}, {matched1} had a pedestrian injury rate of {val1:.2f}, "
         f"while {matched2} had a rate of {val2:.2f}."
     )
-
 
 def generate_data_summary(df_in, jurisdiction=None):
     data = df_in.copy()
@@ -260,85 +249,15 @@ def generate_data_summary(df_in, jurisdiction=None):
         "pct_change": round(pct_change, 2) if pct_change is not None else None
     }
 
-
-def make_trend_figure(df_in, jurisdiction):
-    matched = find_best_jurisdiction_match(jurisdiction)
-    if matched is None:
-        return None
-
-    data = df_in[df_in["Jurisdiction"].str.lower() == matched.lower()].copy()
-    if data.empty:
-        return None
-
-    summary = (
-        data.groupby("Year", as_index=False)["Value"]
-        .mean()
-        .sort_values("Year")
-    )
-
-    fig, ax = plt.subplots(figsize=(6.5, 3.8))
-    ax.plot(summary["Year"], summary["Value"], marker="o", linewidth=2, markersize=5)
-    ax.set_title(f"Trend: {matched}", fontsize=12, pad=10)
-    ax.set_xlabel("Year", fontsize=10)
-    ax.set_ylabel("Rate", fontsize=10)
-    ax.tick_params(axis="x", labelrotation=45, labelsize=8)
-    ax.tick_params(axis="y", labelsize=8)
-    ax.grid(True, alpha=0.3)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    fig.tight_layout()
-    return fig
-
-
-def make_compare_figure(df_in, jurisdiction1, jurisdiction2, year):
-    matched1 = find_best_jurisdiction_match(jurisdiction1)
-    matched2 = find_best_jurisdiction_match(jurisdiction2)
-
-    if matched1 is None or matched2 is None:
-        return None
-
-    data1 = df_in[
-        (df_in["Jurisdiction"].str.lower() == matched1.lower()) &
-        (df_in["Year"] == year)
-    ]
-    data2 = df_in[
-        (df_in["Jurisdiction"].str.lower() == matched2.lower()) &
-        (df_in["Year"] == year)
-    ]
-
-    if data1.empty or data2.empty:
-        return None
-
-    val1 = data1["Value"].mean()
-    val2 = data2["Value"].mean()
-
-    fig, ax = plt.subplots(figsize=(5.8, 3.8))
-    ax.bar([matched1, matched2], [val1, val2], width=0.55)
-    ax.set_title(f"Comparison in {year}", fontsize=12, pad=10)
-    ax.set_ylabel("Rate", fontsize=10)
-    ax.tick_params(axis="x", labelrotation=15, labelsize=9)
-    ax.tick_params(axis="y", labelsize=8)
-    ax.grid(True, axis="y", alpha=0.3)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    fig.tight_layout()
-    return fig
-
 def extract_counties_and_years(user_query, available_counties):
-    """
-    Extract counties and year range from user text.
-    """
     query_lower = user_query.lower()
-
-    # Find mentioned counties
     found_counties = []
+
     for county in available_counties:
         county_clean = county.lower().replace(" county", "").strip()
-
         if county_clean in query_lower:
             found_counties.append(county)
 
-    # Find years
     years = re.findall(r"\b(20\d{2}|19\d{2})\b", user_query)
     years = [int(y) for y in years]
 
@@ -387,20 +306,117 @@ def multi_jurisdiction_trend_text(df_in, counties, start_year, end_year):
 
     return "\n".join(lines)
 
+def top_bottom_jurisdictions_by_year(df_in, start_year, end_year, top_n=3):
+    data = df_in[
+        (df_in["Year"] >= start_year) &
+        (df_in["Year"] <= end_year)
+    ].copy()
+
+    if data.empty:
+        return {"text": f"No data found from {start_year} to {end_year}."}
+
+    yearly_avg = (
+        data.groupby(["Year", "Jurisdiction"], as_index=False)["Value"]
+        .mean()
+    )
+
+    lines = []
+
+    for year in range(start_year, end_year + 1):
+        year_data = yearly_avg[yearly_avg["Year"] == year].copy()
+
+        if year_data.empty:
+            lines.append(f"\n{year}: No data found.")
+            continue
+
+        highest = year_data.sort_values("Value", ascending=False).head(top_n)
+        lowest = year_data.sort_values("Value", ascending=True).head(top_n)
+
+        lines.append(f"\n{year}")
+        lines.append(f"Top {top_n} highest:")
+        for _, row in highest.iterrows():
+            lines.append(f"- {row['Jurisdiction']}: {row['Value']:.2f}")
+
+        lines.append(f"Top {top_n} lowest:")
+        for _, row in lowest.iterrows():
+            lines.append(f"- {row['Jurisdiction']}: {row['Value']:.2f}")
+
+    return {"text": "\n".join(lines)}
+
+# ---------------------------
+# Plotting functions
+# ---------------------------
+def make_trend_figure(df_in, jurisdiction):
+    matched = find_best_jurisdiction_match(jurisdiction)
+    if matched is None:
+        return None
+
+    data = df_in[df_in["Jurisdiction"].str.lower() == matched.lower()].copy()
+    if data.empty:
+        return None
+
+    summary = (
+        data.groupby("Year", as_index=False)["Value"]
+        .mean()
+        .sort_values("Year")
+    )
+
+    fig, ax = plt.subplots(figsize=(6.5, 3.8))
+    ax.plot(summary["Year"], summary["Value"], marker="o", linewidth=2, markersize=5)
+    ax.set_title(f"Trend: {matched}", fontsize=12, pad=10)
+    ax.set_xlabel("Year", fontsize=10)
+    ax.set_ylabel("Rate", fontsize=10)
+    ax.tick_params(axis="x", labelrotation=45, labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+def make_compare_figure(df_in, jurisdiction1, jurisdiction2, year):
+    matched1 = find_best_jurisdiction_match(jurisdiction1)
+    matched2 = find_best_jurisdiction_match(jurisdiction2)
+
+    if matched1 is None or matched2 is None:
+        return None
+
+    data1 = df_in[
+        (df_in["Jurisdiction"].str.lower() == matched1.lower()) &
+        (df_in["Year"] == year)
+    ]
+    data2 = df_in[
+        (df_in["Jurisdiction"].str.lower() == matched2.lower()) &
+        (df_in["Year"] == year)
+    ]
+
+    if data1.empty or data2.empty:
+        return None
+
+    val1 = data1["Value"].mean()
+    val2 = data2["Value"].mean()
+
+    fig, ax = plt.subplots(figsize=(5.8, 3.8))
+    ax.bar([matched1, matched2], [val1, val2], width=0.55)
+    ax.set_title(f"Comparison in {year}", fontsize=12, pad=10)
+    ax.set_ylabel("Rate", fontsize=10)
+    ax.tick_params(axis="x", labelrotation=15, labelsize=9)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    return fig
+
 def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
                       county_col="Jurisdiction", year_col="Year", value_col="Value"):
-    """
-    Plot yearly trend for multiple jurisdictions on the same chart.
-    Returns fig and pivot table.
-    """
-
     matched_counties = []
     for c in counties:
         matched = find_best_jurisdiction_match(c)
         if matched:
             matched_counties.append(matched)
 
-    matched_counties = list(dict.fromkeys(matched_counties))  # remove duplicates, keep order
+    matched_counties = list(dict.fromkeys(matched_counties))
 
     if len(matched_counties) < 2:
         return None, None
@@ -441,51 +457,6 @@ def plot_county_trend(df_in, counties, start_year=2015, end_year=2020,
 
     return fig, pivot_df.reset_index()
 
-def top_bottom_jurisdictions_by_year(df_in, start_year, end_year, top_n=3):
-    data = df_in[
-        (df_in["Year"] >= start_year) &
-        (df_in["Year"] <= end_year)
-    ].copy()
-
-    if data.empty:
-        return {"text": f"No data found from {start_year} to {end_year}."}
-
-    yearly_avg = (
-        data.groupby(["Year", "Jurisdiction"], as_index=False)["Value"]
-        .mean()
-    )
-
-    lines = []
-    results = {}
-
-    for year in range(start_year, end_year + 1):
-        year_data = yearly_avg[yearly_avg["Year"] == year].copy()
-
-        if year_data.empty:
-            lines.append(f"\n{year}: No data found.")
-            continue
-
-        highest = year_data.sort_values("Value", ascending=False).head(top_n)
-        lowest = year_data.sort_values("Value", ascending=True).head(top_n)
-
-        results[year] = {
-            "highest": highest.to_dict(orient="records"),
-            "lowest": lowest.to_dict(orient="records")
-        }
-
-        lines.append(f"\n{year}")
-        lines.append("Top 3 highest:")
-        for _, row in highest.iterrows():
-            lines.append(f"- {row['Jurisdiction']}: {row['Value']:.2f}")
-
-        lines.append("Top 3 lowest:")
-        for _, row in lowest.iterrows():
-            lines.append(f"- {row['Jurisdiction']}: {row['Value']:.2f}")
-
-    return {
-        "text": "\n".join(lines),
-        "results": results
-    }
 # ---------------------------
 # Bedrock tool config
 # ---------------------------
@@ -513,7 +484,6 @@ Rules:
 - Keep answers concise, clear, and grounded in the data.
 - If a user asks for a chart, trend, visualization, graph, plot, or compare visually, use the correct tool.
 - If a user asks to compare two or more jurisdictions over multiple years or on the same plot, use compare_trend_multiple.
-- If a user asks for top or lowest jurisdictions across multiple years, use top_bottom_by_year_range.
 """
 
 def get_tool_config():
@@ -583,42 +553,25 @@ def get_tool_config():
                 }
             },
             {
-    "toolSpec": {
-        "name": "compare_trend_multiple",
-        "description": "Compare trend lines for multiple jurisdictions across a range of years on the same plot.",
-        "inputSchema": {
-            "json": {
-                "type": "object",
-                "properties": {
-                    "jurisdictions": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    },
-                    "start_year": {"type": "integer"},
-                    "end_year": {"type": "integer"}
-                },
-                "required": ["jurisdictions", "start_year", "end_year"]
-            }
-        }
-    }
-},
-            {
-    "toolSpec": {
-        "name": "top_bottom_by_year_range",
-        "description": "Show the top and bottom jurisdictions by pedestrian injury rate for each year in a year range.",
-        "inputSchema": {
-            "json": {
-                "type": "object",
-                "properties": {
-                    "start_year": {"type": "integer"},
-                    "end_year": {"type": "integer"},
-                    "top_n": {"type": "integer"}
-                },
-                "required": ["start_year", "end_year"]
-            }
-        }
-    }
-},
+                "toolSpec": {
+                    "name": "compare_trend_multiple",
+                    "description": "Compare trend lines for multiple jurisdictions across a range of years on the same plot.",
+                    "inputSchema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {
+                                "jurisdictions": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                },
+                                "start_year": {"type": "integer"},
+                                "end_year": {"type": "integer"}
+                            },
+                            "required": ["jurisdictions", "start_year", "end_year"]
+                        }
+                    }
+                }
+            },
             {
                 "toolSpec": {
                     "name": "analysis_summary",
@@ -679,14 +632,14 @@ def execute_tool(tool_name, tool_input):
         }
 
     elif tool_name == "compare_trend_multiple":
-        jurisdictions = tool_input["jurisdictions"]
+        req_jurisdictions = tool_input["jurisdictions"]
         start_year = int(tool_input["start_year"])
         end_year = int(tool_input["end_year"])
 
-        text = multi_jurisdiction_trend_text(df, jurisdictions, start_year, end_year)
+        text = multi_jurisdiction_trend_text(df, req_jurisdictions, start_year, end_year)
 
         matched_list = []
-        for j in jurisdictions:
+        for j in req_jurisdictions:
             matched = find_best_jurisdiction_match(j)
             if matched:
                 matched_list.append(matched)
@@ -701,24 +654,11 @@ def execute_tool(tool_name, tool_input):
             "show_multi_trend_chart": True
         }
 
-        elif tool_name == "top_bottom_by_year_range":
-        start_year = int(tool_input["start_year"])
-        end_year = int(tool_input["end_year"])
-        top_n = int(tool_input.get("top_n", 3))
-
-        result = top_bottom_jurisdictions_by_year(df, start_year, end_year, top_n)
-
-        return {
-            "text": result["text"]
-        }
-
     elif tool_name == "analysis_summary":
         jurisdiction = tool_input.get("jurisdiction")
         summary = generate_data_summary(df, jurisdiction)
         if summary is None:
-            return {
-                "text": "I could not generate a structured summary from the data."
-            }
+            return {"text": "I could not generate a structured summary from the data."}
         return {"summary": summary}
 
     return {"error": f"Unknown tool: {tool_name}"}
@@ -732,7 +672,6 @@ def extract_text_from_content_blocks(content_blocks):
         if "text" in block:
             parts.append(block["text"])
     return "\n".join(parts).strip()
-
 
 def ask_bedrock_with_tools(user_prompt):
     messages = [
@@ -754,15 +693,9 @@ def ask_bedrock_with_tools(user_prompt):
             toolConfig=get_tool_config()
         )
     except (BotoCoreError, ClientError) as e:
-        return {
-            "text": f"Bedrock request failed: {e}",
-            "chart": None
-        }
+        return {"text": f"Bedrock request failed: {e}", "chart": None}
     except Exception as e:
-        return {
-            "text": f"Unexpected Bedrock error: {e}",
-            "chart": None
-        }
+        return {"text": f"Unexpected Bedrock error: {e}", "chart": None}
 
     while loops < max_loops:
         loops += 1
@@ -775,10 +708,7 @@ def ask_bedrock_with_tools(user_prompt):
             final_text = extract_text_from_content_blocks(output_message["content"])
             if not final_text:
                 final_text = "I could not generate a final answer."
-            return {
-                "text": final_text,
-                "chart": pending_chart
-            }
+            return {"text": final_text, "chart": pending_chart}
 
         if stop_reason == "tool_use":
             tool_result_content = []
@@ -842,27 +772,15 @@ def ask_bedrock_with_tools(user_prompt):
                     toolConfig=get_tool_config()
                 )
             except (BotoCoreError, ClientError) as e:
-                return {
-                    "text": f"Bedrock follow-up request failed: {e}",
-                    "chart": None
-                }
+                return {"text": f"Bedrock follow-up request failed: {e}", "chart": None}
             except Exception as e:
-                return {
-                    "text": f"Unexpected Bedrock follow-up error: {e}",
-                    "chart": None
-                }
+                return {"text": f"Unexpected Bedrock follow-up error: {e}", "chart": None}
 
             continue
 
-        return {
-            "text": "I could not complete the request.",
-            "chart": None
-        }
+        return {"text": "I could not complete the request.", "chart": None}
 
-    return {
-        "text": "The Bedrock tool loop reached its limit.",
-        "chart": None
-    }
+    return {"text": "The Bedrock tool loop reached its limit.", "chart": None}
 
 # ---------------------------
 # Main app logic
@@ -913,11 +831,8 @@ with st.sidebar:
     - Which jurisdiction had the highest rate in 2021?
     - Show trend for Baltimore City
     - Compare Maryland and Baltimore City in 2020
-    - Are pedestrian injuries increasing over time in Maryland?
-    - What patterns do you see in pedestrian injury trends?
-    - Why might Baltimore City have higher pedestrian injury rates?
     - Show Washington and Baltimore County together from 2015 to 2020
-    - top and bottom jurisdictions across a year range
+    - Show top 5 counties with highest injury rate and top 5 with lowest injury rate from 2017 to 2020
     """)
 
 # ---------------------------
@@ -948,25 +863,24 @@ if user_prompt:
     with st.chat_message("user"):
         st.write(user_prompt)
 
-   if is_top_bottom_request(user_prompt):
-    start_year, end_year = extract_year_range(user_prompt)  # we define below
-    top_n = extract_top_n(user_prompt)
+    # Handle top/bottom requests directly in Python
+    if is_top_bottom_request(user_prompt):
+        start_year, end_year = extract_year_range(user_prompt)
+        top_n = extract_top_n(user_prompt, default=3)
 
-    if start_year is None or end_year is None:
-        result = {
-            "text": "Please specify a year range like 2017 to 2020.",
-            "figure": None
-        }
+        if start_year is None or end_year is None:
+            result = {
+                "text": "Please specify a year range like 2017 to 2020.",
+                "figure": None
+            }
+        else:
+            top_bottom_result = top_bottom_jurisdictions_by_year(df, start_year, end_year, top_n)
+            result = {
+                "text": top_bottom_result["text"],
+                "figure": None
+            }
     else:
-        result_data = top_bottom_jurisdictions_by_year(df, start_year, end_year, top_n)
-
-        result = {
-            "text": result_data["text"],
-            "figure": None
-        }
-
-else:
-    result = answer_question(user_prompt)
+        result = answer_question(user_prompt)
 
     assistant_message = {
         "role": "assistant",
