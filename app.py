@@ -357,15 +357,14 @@ with st.sidebar:
     st.write(f"Years: {int(df['Year'].min())}–{int(df['Year'].max())}")
     st.write("Example questions:")
     st.markdown("""
-st.markdown("""
-- What was the pedestrian injury rate in Baltimore City in 2022?
-- Which jurisdiction had the highest rate in 2021?
-- Show trend for Baltimore City
-- Compare Maryland and Baltimore City in 2020
-- Are pedestrian injuries increasing over time in Maryland?
-- What patterns do you see in pedestrian injury trends?
-- Why might Baltimore City have higher pedestrian injury rates?
-""")
+    - What was the pedestrian injury rate in Baltimore City in 2022?
+    - Which jurisdiction had the highest rate in 2021?
+    - Show trend for Baltimore City
+    - Compare Maryland and Baltimore City in 2020
+    - Are pedestrian injuries increasing over time in Maryland?
+    - What patterns do you see in pedestrian injury trends?
+    - Why might Baltimore City have higher pedestrian injury rates?
+    """)
 
 # ---------------------------
 # Chat history
