@@ -40,7 +40,7 @@ st.set_page_config(
 col1, col2 = st.columns([1, 10])
 
 with col1:
-    # st.image("panda.jpg", width=70)
+    pass
 with col2:
     st.title("Maryland Pedestrian Injury Chatbot")
    
