@@ -33,18 +33,17 @@ except Exception as e:
 # ---------------------------
 st.set_page_config(
     page_title="Maryland Pedestrian Injury Chatbot",
-    page_icon="panda.jpg",
+    # page_icon="panda.jpg",
     layout="wide"
 )
 
 col1, col2 = st.columns([1, 10])
 
 with col1:
-    st.image("panda.jpg", width=70)
-
+    # st.image("panda.jpg", width=70)
 with col2:
     st.title("Maryland Pedestrian Injury Chatbot")
-    st.caption("Amazon Bedrock + Pandas + Streamlit")
+   
 
 # ---------------------------
 # Load and clean data
