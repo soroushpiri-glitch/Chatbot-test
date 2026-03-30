@@ -43,7 +43,7 @@ with col1:
    st.image("panda.jpg", width=70)
 with col2:
     st.title("Maryland Pedestrian Injury Chatbot")
-   
+    st.caption("Amazon Bedrock + Pandas + Streamlit")
 
 # ---------------------------
 # Load and clean data
